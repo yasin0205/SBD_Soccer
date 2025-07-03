@@ -1,1 +1,21 @@
-dataset/
+# Ignore all video files
+*.mkv
+*.mp4
+*.avi
+
+# Ignore dataset folders
+/dataset/
+/LaLiga_Videos/
+
+# Node modules and build outputs
+node_modules/
+build/
+dist/
+
+# Logs and environment files
+*.log
+.env
+
+# Archives and design files
+*.zip
+*.psd

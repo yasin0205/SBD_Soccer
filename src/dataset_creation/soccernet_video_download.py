@@ -6,7 +6,7 @@ from SoccerNet.utils import getListGames
 CONFIG = {
     "league_keyword": "spain_laliga",                         # Filter by this keyword
     "video_quality_files": ["1_720p.mkv", "2_720p.mkv"],      # Files to download
-    "password": "s0cc3rn3t",                                           # Set your SoccerNet password here
+    "password": "PASSWORD",                                           # Set your SoccerNet password here
     "output_dir": os.path.join(os.getcwd(), "LaLiga_Videos") # Where to save the videos
 }
 

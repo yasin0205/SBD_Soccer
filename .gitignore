@@ -20,5 +20,8 @@ dist/
 *.zip
 *.psd
 
-# Others
+# Ignore all Jupyter notebooks & checkpoints
 *.ipynb
+.ipynb_checkpoints/
+
+# Others

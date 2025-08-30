@@ -93,17 +93,17 @@ class GoalClipExtractor:
 
     def process_annotation(self, annotation_path):
         """
-        Load annotation JSON and return list of goal events.
+        Load annotation JSON and return list of all annotations (not just goals).
         """
         with open(annotation_path, 'r') as f:
             data = json.load(f)
-        return [ann for ann in data.get("annotations", []) if ann.get("label", "").lower() == "goal"]
+        return data.get("annotations", [])
 
     def process_folder(self, folder_path, target_folder_path, frame_extractor):
         """
         Process a single match folder:
         - find videos and annotation
-        - cut goal clips
+        - cut goal clips based on logic
         - extract frames from each goal clip
         """
         print(f"Processing folder: {folder_path}")
@@ -118,11 +118,15 @@ class GoalClipExtractor:
             return
 
         annotation_path = os.path.join(folder_path, annotation_file)
-        goals = self.process_annotation(annotation_path)
+        annotations = self.process_annotation(annotation_path)
+
+        # Filter goal annotations with their index
+        goal_indices = [i for i, ann in enumerate(annotations) if ann.get("label", "").lower() == "goal"]
 
         FileManager.ensure_dir_exists(target_folder_path)
 
-        for idx, goal in enumerate(goals, start=1):
+        for clip_num, goal_idx in enumerate(goal_indices, start=1):
+            goal = annotations[goal_idx]
             try:
                 video_idx, goal_sec = self.parse_game_time(goal["gameTime"])
             except Exception as e:
@@ -133,22 +137,34 @@ class GoalClipExtractor:
                 print(f"Video {video_idx} not found.")
                 continue
 
+            start_sec = max(0, goal_sec - self.sec_before)
+            end_sec = goal_sec + self.sec_after  # default
+
+            # Check next annotation for kick-off logic
+            if goal_idx + 1 < len(annotations):
+                next_ann = annotations[goal_idx + 1]
+                if next_ann.get("label", "").lower() == "kick-off":
+                    try:
+                        _, next_sec = self.parse_game_time(next_ann["gameTime"])
+                        visibility = next_ann.get("visibility", "").lower()
+                        if visibility == "visible":
+                            end_sec = next_sec
+                        # if "not shown", use default
+                    except Exception as e:
+                        print(f"Failed to parse gameTime of next annotation: {e}")
+
             video_file = video_dict[video_idx]
             video_path = os.path.join(folder_path, video_file)
 
-            start_sec = max(0, goal_sec - self.sec_before)
-            end_sec = goal_sec + self.sec_after
-
             team = goal.get("team", "unknown")
             safe_game_time = goal["gameTime"].replace(" ", "_").replace(":", "-")
-            clip_name = f"{safe_game_time}_{team}_goal{idx}.mp4"
+            clip_name = f"{safe_game_time}_{team}_goal{clip_num}.mp4"
             clip_path = os.path.join(target_folder_path, clip_name)
 
             print(f"Cutting clip {clip_name} from {start_sec}s to {end_sec}s")
             success = self.cut_clip(video_path, start_sec, end_sec, clip_path)
 
             if success:
-                # Extract frames from the clip
                 match_name = os.path.basename(folder_path)
                 goal_folder = os.path.splitext(clip_name)[0]
                 frames_folder = os.path.join(frame_extractor.frames_dir, match_name, goal_folder)
@@ -166,6 +182,7 @@ class GoalClipExtractor:
             if os.path.isdir(folder_path):
                 target_folder_path = os.path.join(self.target_dir, folder_name)
                 self.process_folder(folder_path, target_folder_path, frame_extractor)
+
 
 
 class FrameExtractor:
@@ -216,7 +233,7 @@ if __name__ == "__main__":
         "video_extensions": ('.mp4', '.avi', '.mov', '.mkv'),
         "annotation_extensions": ('.json',),
         "seconds_before_goal": 20,
-        "seconds_after_goal": 20,
+        "seconds_after_goal": 60,
         "fps": 25,
         "source_dir": os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "dataset", "full_length_soccer_match_and_annotation")),
         "target_dir": os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "dataset", "goal_clips")),

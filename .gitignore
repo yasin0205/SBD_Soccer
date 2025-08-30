@@ -4,7 +4,7 @@
 *.avi
 
 # Ignore dataset folders
-/dataset/
+#/dataset/
 /LaLiga_Videos/
 
 # Node modules and build outputs

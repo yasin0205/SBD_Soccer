@@ -24,4 +24,9 @@ dist/
 *.ipynb
 .ipynb_checkpoints/
 
+# Ignore Python cache
+__pycache__/
+*.pyc
+*.pyo
+
 # Others

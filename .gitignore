@@ -21,4 +21,4 @@ dist/
 *.psd
 
 # Others
-.ipynb
+*.ipynb

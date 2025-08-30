@@ -19,3 +19,6 @@ dist/
 # Archives and design files
 *.zip
 *.psd
+
+# Others
+.ipynb

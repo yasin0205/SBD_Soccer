@@ -1,8 +1,12 @@
 """
-SoccerNet Game Downloader (Flat Structure)
-------------------------------------------
+SoccerNet Game Downloader (Safe Flat Structure)
+-----------------------------------------------
 Downloads SoccerNet matches into a flat folder.
 Supports interactive filtering and multiple selections.
+Now with:
+    - Retry logic
+    - Safe moving (no race condition)
+    - Cleanup after all downloads
 """
 
 import os
@@ -25,7 +29,7 @@ os.makedirs(OUTPUT_DIR, exist_ok=True)
 
 CONFIG = {
     "output_dir": OUTPUT_DIR,
-    "password": "",
+    "password": "s0cc3rn3t",
     "max_workers": 4,
     "default_resolution": "720",
     "label_file": "Labels-v2.json"
@@ -35,6 +39,7 @@ CONFIG = {
 # HELPER FUNCTIONS
 # =====================================================================
 def fetch_games():
+    """Fetch and parse all available SoccerNet games."""
     all_games = getListGames(split=["train", "valid", "test", "challenge"])
     df = pd.DataFrame(all_games, columns=["Games"])
 
@@ -47,11 +52,14 @@ def fetch_games():
     )
 
     parsed_df = df["Games"].str.extract(pattern)
-    parsed_df = parsed_df[["league", "season", "date", "time", "home_team", "home_score", "away_score", "away_team"]]
+    parsed_df = parsed_df[
+        ["league", "season", "date", "time", "home_team", "home_score", "away_score", "away_team"]
+    ]
     return parsed_df, all_games
 
 
 def select_resolution():
+    """Ask user to pick a resolution."""
     choice = input(f"Select resolution (224 or 720, default {CONFIG['default_resolution']}): ").strip()
     if choice == "224":
         return ["1_224p.mkv", "2_224p.mkv", CONFIG["label_file"]]
@@ -59,6 +67,7 @@ def select_resolution():
 
 
 def interactive_search(parsed_df):
+    """Interactive guided filtering of games."""
     filtered = parsed_df.copy()
 
     def multi_select(column_name, display_name):
@@ -83,6 +92,7 @@ def interactive_search(parsed_df):
     print("\n✅ Matching games:")
     print(filtered)
 
+    # Save filtered list
     filtered_csv = os.path.join(CONFIG["output_dir"], "filtered_games.csv")
     filtered.to_csv(filtered_csv, index=False)
     print(f"\n📂 Filtered results saved to: {filtered_csv}")
@@ -91,6 +101,7 @@ def interactive_search(parsed_df):
 
 
 def download_game_row(row, all_games, downloader, files):
+    """Download one game, retrying if necessary, and move to flat structure."""
     match_str = (
         f"{row['league']}/{row['season']}/{row['date']} - {row['time']} "
         f"{row['home_team']} {row['home_score']} - {row['away_score']} {row['away_team']}"
@@ -101,32 +112,40 @@ def download_game_row(row, all_games, downloader, files):
         print(f"⚠️ WARNING: Game not found → {match_str}")
         return
 
-    print(f"⬇️ Downloading: {matched_games[0]}")
+    game_path = matched_games[0]
+    print(f"⬇️ Downloading: {game_path}")
 
-    # Download to default nested structure
-    downloader.downloadGame(matched_games[0], files=files)
+    # Retry up to 3 times
+    for attempt in range(3):
+        try:
+            downloader.downloadGame(game_path, files=files)
+            break
+        except Exception as e:
+            print(f"⚠️ Download failed (attempt {attempt+1}/3) for {game_path}: {e}")
+    else:
+        print(f"❌ Giving up on {game_path}")
+        return
 
-    # Move to flat folder
-    nested_dir = os.path.join(CONFIG["output_dir"], matched_games[0].replace("/", os.sep))
+    # Prepare flat folder
+    nested_dir = os.path.join(CONFIG["output_dir"], game_path.replace("/", os.sep))
     flat_name = f"{row['date']} - {row['time']} {row['home_team']} {row['home_score']} - {row['away_score']} {row['away_team']}"
     target_dir = os.path.join(CONFIG["output_dir"], flat_name)
     os.makedirs(target_dir, exist_ok=True)
 
+    # Move each file safely
     for f in files:
         src = os.path.join(nested_dir, f)
+        dst = os.path.join(target_dir, f)
         if os.path.exists(src):
-            shutil.move(src, os.path.join(target_dir, f))
-
-    # Clean up empty nested folders
-    try:
-        shutil.rmtree(os.path.join(CONFIG["output_dir"], row['league']))
-    except Exception:
-        pass
+            shutil.move(src, dst)
+        else:
+            print(f"⚠️ Missing file: {src}")
 
     print(f"✅ Saved match in flat folder: {target_dir}")
 
 
 def download_games(filtered_df, all_games, downloader, files, max_workers=4):
+    """Download multiple games in parallel."""
     count = len(filtered_df)
     print(f"\nTotal games to download: {count}")
     confirm = input(f"Ready to download {count} games? (y/n): ").strip().lower()
@@ -141,6 +160,22 @@ def download_games(filtered_df, all_games, downloader, files, max_workers=4):
     print("\n✅ All selected matches downloaded successfully.")
 
 
+def cleanup_nested_dirs():
+    """Remove leftover nested SoccerNet directories after downloads."""
+    for root, dirs, _ in os.walk(CONFIG["output_dir"]):
+        for d in dirs:
+            full_path = os.path.join(root, d)
+            if any(keyword in full_path.lower() for keyword in ["england", "spain", "italy", "germany", "france"]):
+                try:
+                    shutil.rmtree(full_path)
+                    print(f"🗑️ Cleaned up {full_path}")
+                except Exception as e:
+                    print(f"⚠️ Could not remove {full_path}: {e}")
+
+
+# =====================================================================
+# MAIN
+# =====================================================================
 def main():
     print("\n⚽ SoccerNet Interactive Game Downloader ⚽")
 
@@ -154,6 +189,7 @@ def main():
     filtered_games = interactive_search(parsed_df)
     if filtered_games is not None:
         download_games(filtered_games, all_games, downloader, files_to_download, CONFIG["max_workers"])
+        cleanup_nested_dirs()
 
 
 if __name__ == "__main__":
